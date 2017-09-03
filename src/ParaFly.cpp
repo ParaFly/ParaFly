@@ -32,6 +32,7 @@ int main(int argc, char* argv[]) {
     
     bool shuffle_flag = false;
 
+    int max_retries = 10;
 
     if (args.isArgSet("-help") 
         || ! (args.isArgSet("-c") ) 
@@ -51,8 +52,10 @@ int main(int argc, char* argv[]) {
     if (args.isArgSet("-shuffle")) {
         shuffle_flag = true;
     }
+    if (args.isArgSet("-max_retry")) {
+        max_retries = args.getIntVal("-max_retry");
+    }
     
-
     string commands_file = args.getStringVal("-c");
     
     int num_cpus = args.getIntVal("-CPU");
@@ -109,6 +112,9 @@ int main(int argc, char* argv[]) {
 
     string line;
     getline(in,line);
+
+    int count_skip = 0;
+    int max_report_skip = 10;
     
     while (! in.eof()) {
 
@@ -117,11 +123,14 @@ int main(int argc, char* argv[]) {
             previously_completed_commands.find(line) != previously_completed_commands.end()) {
             
             // this command has been run before successfully, not running it again.
-            if (VERBOSE_LEVEL) {
+            if (VERBOSE_LEVEL and count_skip < max_report_skip) {
                 cerr << "warning, command: " << line << " has successfully completed from a previous run.  Skipping it here." << endl;
+                count_skip++;
+                if (count_skip >= max_report_skip) {
+                    cerr << "-reached max skip warning, turning off warnings for this." << endl;
+                }
             }
-            
-            
+                        
         }
         else {
             NumberofCommands++;
@@ -160,8 +169,17 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        int ret = system(command.c_str());
-
+        int ret = -1;
+        int try_count = 0;
+        while (ret != 0 && try_count < max_retries) {
+            ret = system(command.c_str());
+            if (ret != 0 && try_count < max_retries) {
+                try_count++;
+                cerr << "warning, cmd: " << command << " failed with ret: " << ret << ", going to retry." << endl;
+                system("sleep 10"); // give the system a short break to recover
+            }
+        }
+        
         // exit if child received SIGINT or SIGQUIT
         if (WIFSIGNALED(ret) &&
             (WTERMSIG(ret) == SIGINT || WTERMSIG(ret) == SIGQUIT)) {
@@ -253,6 +271,7 @@ string usage () {
        << "#   -CPU <int>            :number_of_threads" << endl
        << "#" << endl
        << "# Optional:" << endl
+       << "#   -max_retry <int>      :number of times to retry a command if it fails. (default: 10)" << endl
        << "#   -shuffle              :randomly shuffles the command order. " << endl
        << "#   -failed_cmds <str>    :filename to capture failed commands.  default(\"FailedCommands\")" << endl
        << "#   -v                    :simple progress monitoring." << endl
